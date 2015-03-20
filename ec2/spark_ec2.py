@@ -65,7 +65,7 @@ DEFAULT_SPARK_GITHUB_REPO = "https://github.com/apache/spark"
 MESOS_SPARK_EC2_BRANCH = "branch-1.3"
 
 # A URL prefix from which to fetch AMI information
-AMI_PREFIX = "https://raw.github.com/mesos/spark-ec2/{b}/ami-list".format(b=MESOS_SPARK_EC2_BRANCH)
+AMI_PREFIX = "https://raw.github.com/sukwon0709/spark-ec2/{b}/ami-list".format(b=MESOS_SPARK_EC2_BRANCH)
 
 
 def setup_boto():
@@ -290,11 +290,11 @@ def get_spark_ami(opts):
     instance_types = {
         "c1.medium":   "pvm",
         "c1.xlarge":   "pvm",
-        "c3.2xlarge":  "pvm",
-        "c3.4xlarge":  "pvm",
-        "c3.8xlarge":  "pvm",
-        "c3.large":    "pvm",
-        "c3.xlarge":   "pvm",
+        "c3.2xlarge":  "hvm",
+        "c3.4xlarge":  "hvm",
+        "c3.8xlarge":  "hvm",
+        "c3.large":    "hvm",
+        "c3.xlarge":   "hvm",
         "cc1.4xlarge": "hvm",
         "cc2.8xlarge": "hvm",
         "cg1.4xlarge": "hvm",
@@ -390,6 +390,12 @@ def launch_cluster(conn, opts, cluster_name):
         master_group.authorize('tcp', 50070, 50070, authorized_address)
         master_group.authorize('tcp', 60070, 60070, authorized_address)
         master_group.authorize('tcp', 4040, 4045, authorized_address)
+
+        # redis, zookeeper, kafka
+        master_group.authorize('tcp', 6379, 6379, authorized_address)
+        master_group.authorize('tcp', 2181, 2181, authorized_address)
+        master_group.authorize('tcp', 9092, 9092, authorized_address)
+
         if opts.ganglia:
             master_group.authorize('tcp', 5080, 5080, authorized_address)
     if slave_group.rules == []:  # Group was just now created
@@ -654,7 +660,7 @@ def setup_cluster(conn, master_nodes, slave_nodes, opts, deploy_ssh_key):
         opts=opts,
         command="rm -rf spark-ec2"
         + " && "
-        + "git clone https://github.com/mesos/spark-ec2.git -b {b}".format(b=MESOS_SPARK_EC2_BRANCH)
+        + "git clone https://github.com/sukwon0709/spark-ec2.git -b {b}".format(b=MESOS_SPARK_EC2_BRANCH)
     )
 
     print "Deploying files to master..."
@@ -1004,9 +1010,24 @@ def get_partition(total, num_partitions, current_partitions):
         num_slaves_this_zone += 1
     return num_slaves_this_zone
 
+def read_root_key():
+    """Parses a local rootkey.cvs file to load
+        aws_access_key_id
+        aws_secret_access_key
+    """
+    with open('rootkey.csv', 'r') as f:
+        readfile = f.readlines()
+    keydic = {}
+    for r in readfile:
+        k = r.split('=')[0].rstrip()
+        v = r.split('=')[1].rstrip()
+        keydic[k] = v
+    return keydic
 
 def real_main():
     (opts, action, cluster_name) = parse_args()
+
+    cred = read_root_key()
 
     # Input parameter validation
     get_validate_spark_version(opts.spark_version, opts.spark_git_repo)
@@ -1026,7 +1047,9 @@ def real_main():
         sys.exit(1)
 
     try:
-        conn = ec2.connect_to_region(opts.region)
+        conn = ec2.connect_to_region(opts.region,
+            aws_access_key_id=cred["AWSAccessKeyId"],
+            aws_secret_access_key=cred["AWSSecretKey"])
     except Exception as e:
         print >> stderr, (e)
         sys.exit(1)
